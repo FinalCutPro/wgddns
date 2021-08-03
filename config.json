@@ -1,4 +1,5 @@
 {
   "dns": "https://8.8.8.8/resolve?",
-  "domain": ""
+  "domain": "",
+  "wg": "wg0"
 }

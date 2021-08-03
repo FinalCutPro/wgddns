@@ -6,6 +6,7 @@ with open("config.json", mode="r")as config_file:
     config = json.load(config_file)
 dns = config["dns"]
 domain = config["domain"]
+wg = config["wg"]
 
 headers = {
     'accept': 'application/dns-json',
@@ -27,11 +28,11 @@ try:
     with open("last_ip.txt", "r")as file:
         last_ip = file.read()
         if ip != last_ip:
-            os.system("sudo systemctl restart wg-quick@wg0")
+            os.system("sudo systemctl restart wg-quick@"+wg)
 except FileNotFoundError:
     with open("last_ip.txt", "w")as file:
         file.write(ip)
     with open("last_ip.txt", "r")as file:
         last_ip = file.read()
         if ip != last_ip:
-            os.system("sudo systemctl restart wg-quick@wg0")
+            os.system("sudo systemctl restart wg-quick@"+wg)

@@ -1,6 +1,7 @@
 #!/bin/bash
 ### encoding: UTF-8, Format: Unix(LF) ###
 # yamabuki_bakery@outlook.jp
+# Last edit: Aug 08, 2021
 # 傳承了 薩格爾王 瑪納斯 江格爾 偉大史詩
 
 LOGGING_LEVEL=2 # 1:DEBUG
@@ -37,9 +38,10 @@ function main() {
     prepare_tmp_folder  # 新建臨時文件夾
 
     # 列出所有運行的 wg 介面
-    wg show | grep -i interface | sed "s/interface\:\s\(.*\)$/\1/" > ${TEMPDIR}/interfaces.tmp
-    local amount=$(wc -l < "${TEMPDIR}"/interfaces.tmp)  # 介面的數量，整數
-    local interfaces=($(cat ${TEMPDIR}/interfaces.tmp))  # 介面的名字，數組
+    #wg show | grep -i interface | sed "s/interface\:\s\(.*\)$/\1/" > ${TEMPDIR}/interfaces.tmp
+    
+    local interfaces=($(wg show interfaces))  # 介面的名字，數組
+    local amount=${#interfaces[@]}  # 介面的數量，整數
 
     logging 2 "${amount} wg interface(s) found"
 
@@ -88,9 +90,7 @@ function main() {
             local conf_endpoint=$(cat ${WGDIR}/${interface}.conf | sed "${conf_start},${conf_end}!d" | grep -i endpoint | sed -E "s/.*=\s*(.*)\:[0-9]{1,5}\s*$/\1/")
             local conf_endpoint_port=$(cat ${WGDIR}/${interface}.conf | sed "${conf_start},${conf_end}!d" | grep -i endpoint | sed -E "s/.*=\s*.*\:([0-9]{1,5})\s*$/\1/")
 
-            
-            echo -e "${conf_pubkey} ${conf_endpoint} ${conf_endpoint_port}" >> ${TEMPDIR}/conf-interface-${interface}.peeraddr
-
+            echo -e "${conf_pubkey},${conf_endpoint},${conf_endpoint_port}" >> ${TEMPDIR}/conf-interface-${interface}.peeraddr
         done
         ################################# 確認該介面的配置文件 ###############################
 
@@ -125,9 +125,11 @@ function main() {
             fi
             # 已經拿到該 peer 的 ip，現在和配置文件進行比較。
             # local conf_endpoint=$(cat ${TEMPDIR}/conf-interface-${interface}.peeraddr | grep ${peer} | sed -E "s/.*\s(.*)$/\1/" )
-            local conf_peer=($(cat ${TEMPDIR}/conf-interface-${interface}.peeraddr | grep ${peer}))
-            local conf_endpoint=${conf_peer[1]}
-            local conf_endpoint_port=${conf_peer[2]}
+            local conf_peer=$(cat ${TEMPDIR}/conf-interface-${interface}.peeraddr | grep ${peer})
+            IFS=',' read -ra fields <<< "${conf_peer}"
+
+            local conf_endpoint=${fields[1]}
+            local conf_endpoint_port=${fields[2]}
 
             local conf_IPV4=$(echo ${conf_endpoint} | grep -m 1 -o "$IPV4_REGEX")    # $ for do not detect ip in 0.0.0.0.example.com
             local conf_IPV6=$(echo ${conf_endpoint} | grep -m 1 -o "$IPV6_REGEX")
@@ -146,12 +148,19 @@ function main() {
                         if resolve ${conf_endpoint}; then
                             local addr=${RETURN_VALUE}
                             logging 1 "+++ ${conf_endpoint} 解析的地址是 ${addr}"
-                            if [[ ${addr} == ${peer_ip} ]]; then
+                            if [[ ${addr} == ${peer_ip} ]]; then  # 這裏 peer_ip 的 v6 也沒有加框
                                 logging 2 "+++ 地址没有改变，跳过！"
                                 continue
                             else
-                                logging 2 "+++ 地址改变了，需要更改 wg 端点，新地址是 ${addr}:${conf_endpoint_port}"
-                                wg set ${interface} peer ${peer} endpoint ${addr}:${conf_endpoint_port}
+                                # 檢查是否需要 v6 加框
+                                local v6test=$(echo ${addr} | grep -m 1 -o "$IPV6_REGEX")
+                                if [[ -n ${v6test} ]]; then
+                                    logging 2 "+++ 地址改变了，需要更改 wg 端点，新地址是 [${addr}]:${conf_endpoint_port}"
+                                    wg set ${interface} peer ${peer} endpoint "[${addr}]:${conf_endpoint_port}"
+                                else
+                                    logging 2 "+++ 地址改变了，需要更改 wg 端点，新地址是 ${addr}:${conf_endpoint_port}"
+                                    wg set ${interface} peer ${peer} endpoint ${addr}:${conf_endpoint_port}
+                                fi
                             fi
                         else
                             logging 2 "+++ ${conf_endpoint} 解析失败，跳过"
@@ -203,7 +212,7 @@ function prepare_tmp_folder () {
 # return: 0 for ok, exit for error
 ############################################################################
 function check_commands(){ # no params
-    local commands=("wg" "wc" "cat" "nslookup")
+    local commands=("wg" "cat" "nslookup")
     for command in "${commands[@]}" 
     do
         logging 1 "Checking command ${command}"
@@ -252,7 +261,7 @@ function error_exit (){
 # function name: resolve
 # function description: resolve ip of given host, v6 first
 # parameters: $1: the host
-# return: 0 for ok, 1 for error, return value (string) IP as 1.1.1.1 [240c::6666]
+# return: 0 for ok, 1 for error, return value (string) IP as 1.1.1.1 240c::6666 不帶框
 ############################################################################
 function resolve (){
     local result=$(nslookup $1 | tail -n2 | grep "^Addr" | sed -E "s/^Address.*:\s(.*)$/\1/" | tail -n1)
